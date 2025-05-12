@@ -8,24 +8,31 @@
   <style>
     body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; }
     #map { height: 90vh; }
-    #controls { padding: 10px; background: #f4f4f4; }
+    #controls { padding: 10px; background: #f4f4f4; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    #searchBox, #dateSelect { padding: 5px; width: 200px; }
     .popup-form input, .popup-form textarea, .popup-form button { display: block; width: 100%; margin-top: 5px; }
+    #suggestions { position: absolute; background: white; border: 1px solid #ccc; z-index: 1000; max-height: 150px; overflow-y: auto; width: 200px; }
+    #suggestions div { padding: 5px; cursor: pointer; }
+    #suggestions div:hover { background: #eaeaea; }
   </style>
 </head>
 <body>
 
 <div id="controls">
-  🔍 <input type="text" id="searchBox" placeholder="Search place..." />
-  <button onclick="searchPlace()">Search</button>
+  🔍 <input type="text" id="searchBox" placeholder="Search place..." autocomplete="off" />
+  <div id="suggestions"></div>
   <button onclick="clearAll()">Clear All</button>
+  <input type="date" id="dateSelect" />
+  <button onclick="showDateRoute()">Show Routes for Date</button>
 </div>
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script>
-  const ORS_API_KEY = "5b3ce3597851110001cf62489b2edba376c34275a27c88bde7643bc6"; // <-- Replace this
+  const ORS_API_KEY = "5b3ce3597851110001cf62489b2edba376c34275a27c88bde7643bc6";
+  let mapCenter = JSON.parse(localStorage.getItem("lastCenter")) || { lat: 1.3521, lon: 103.8198 }; // Default to SG
+  let map = L.map('map').setView([mapCenter.lat, mapCenter.lon], 13);
 
-  let map = L.map('map').setView([1.3521, 103.8198], 12); // Singapore default
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors'
   }).addTo(map);
@@ -34,7 +41,7 @@
   let visitData = JSON.parse(localStorage.getItem('visitData')) || [];
 
   function addMarker(lat, lon, name, date = '', note = '') {
-    const marker = L.marker([lat, lon], { draggable: false }).addTo(map);
+    const marker = L.marker([lat, lon]).addTo(map);
     marker.bindTooltip(note || name, { permanent: false, direction: "top" });
     marker.visitInfo = { lat, lon, name, date, note };
 
@@ -86,19 +93,33 @@
     location.reload();
   }
 
-  async function searchPlace() {
-    const query = document.getElementById('searchBox').value;
-    if (!query) return alert("Enter a place");
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
-    const data = await res.json();
-    if (!data.length) return alert("Place not found!");
-    const { lat, lon, display_name } = data[0];
-    map.setView([lat, lon], 15);
-    addMarker(lat, lon, display_name);
+  async function fetchSuggestions(query) {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&addressdetails=1`);
+    return await res.json();
   }
 
-  async function updateRoutes() {
-    // Remove old routes
+  document.getElementById('searchBox').addEventListener('input', async (e) => {
+    const query = e.target.value;
+    const suggestionBox = document.getElementById('suggestions');
+    suggestionBox.innerHTML = '';
+    if (query.length < 3) return;
+
+    const results = await fetchSuggestions(query);
+    results.forEach(place => {
+      const div = document.createElement('div');
+      div.textContent = place.display_name;
+      div.onclick = () => {
+        map.setView([place.lat, place.lon], 15);
+        localStorage.setItem("lastCenter", JSON.stringify({ lat: place.lat, lon: place.lon }));
+        addMarker(place.lat, place.lon, place.display_name);
+        document.getElementById('searchBox').value = '';
+        suggestionBox.innerHTML = '';
+      };
+      suggestionBox.appendChild(div);
+    });
+  });
+
+  async function updateRoutes(filteredDate = null) {
     document.querySelectorAll('.route-line').forEach(el => el.remove());
 
     const groupedByDate = {};
@@ -109,13 +130,12 @@
     });
 
     for (const date in groupedByDate) {
+      if (filteredDate && filteredDate !== date) continue;
+
       const coords = groupedByDate[date].map(p => [parseFloat(p.lon), parseFloat(p.lat)]);
       if (coords.length < 2) continue;
 
-      const body = {
-        coordinates: coords,
-        instructions: false,
-      };
+      const body = { coordinates: coords, instructions: false };
 
       try {
         const res = await fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson", {
@@ -139,8 +159,22 @@
     }
   }
 
+  function showDateRoute() {
+    const selectedDate = document.getElementById('dateSelect').value;
+    if (!selectedDate) return alert("Select a date first.");
+    markers.forEach(m => map.removeLayer(m));
+    markers = [];
+    const filtered = visitData.filter(v => v.date === selectedDate);
+    filtered.forEach(({ lat, lon, name, date, note }) => {
+      addMarker(lat, lon, name, date, note);
+    });
+    updateRoutes(selectedDate);
+  }
+
   restoreMarkers();
 </script>
+
 </body>
 </html>
+
 
