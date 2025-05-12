@@ -1,174 +1,164 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>Trip Planner Map</title>
-  <!-- Include Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+  <title>Travel Planner</title>
   <style>
-    /* Set the height of the map container */
-    #map {
-      height: 600px;
-      width: 100%;
+    body { font-family: sans-serif; }
+    #map { height: 75vh; width: 100%; }
+    #controls {
+      padding: 10px;
+      background: #f9f9f9;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
     }
-    /* Basic styling for the form below the map */
-    #formContainer {
-      margin-top: 10px;
-    }
-    label {
-      display: inline-block;
-      width: 60px;
-    }
-    input {
-      margin-bottom: 10px;
-    }
+    textarea { vertical-align: middle; }
+    #saved-list { margin: 10px; }
   </style>
 </head>
 <body>
-  <h1>Trip Planner Map</h1>
-  
-  <!-- Map container -->
-  <div id="map"></div>
-  
-  <!-- Form for capturing date and notes -->
-  <div id="formContainer">
-    <label for="date">Date:</label>
-    <input type="date" id="date">
-    <br>
-    <label for="notes">Notes:</label>
-    <input type="text" id="notes" placeholder="Enter notes here">
-    <br>
-    <button id="savePin">Save Pin</button>
+  <div id="controls">
+    <input id="place-search" type="text" placeholder="Search a place" size="40">
+    <input type="date" id="visit-date">
+    <textarea id="notes" placeholder="Add notes..." rows="2" cols="30"></textarea>
+    <button onclick="saveLocation()">Add To-Go</button>
+    <select id="day-selector" onchange="drawRoutesForDay()">
+      <option value="">-- Select a Day to Show Route --</option>
+    </select>
   </div>
 
- <!--  Add a Select Element in HTML: -->
-<div id="filterContainer">
-  <label for="filterDate">Filter by Date:</label>
-  <select id="filterDate">
-    <option value="">--Select Date--</option>
-    <!-- Options will be dynamically populated -->
-  </select>
-  <button id="applyFilter">Apply Filter</button>
-</div>
-  
-  <!-- Include Leaflet JS -->
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  
-  <!-- Your JavaScript logic -->
+  <div id="map"></div>
+  <div id="saved-list"></div>
+
   <script>
-    // 1. Initialize the map and set a default view:
-    var map = L.map('map').setView([20, 0], 2); // Adjust center and zoom level as needed.
+    let map, marker, selectedPlace;
+    let savedLocations = JSON.parse(localStorage.getItem("savedLocations") || "[]");
 
-    // 2. Load OpenStreetMap tiles via Leaflet:
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
-
-    // 3. Prepare a temporary marker variable:
-    var tempMarker;
-
-    // 4. Listen for clicks on the map to place a temporary marker:
-    map.on('click', function(e) {
-      // Remove previous temporary marker if it exists
-      if (tempMarker) {
-        map.removeLayer(tempMarker);
-      }
-      // Add a new marker at the clicked location
-      tempMarker = L.marker(e.latlng).addTo(map);
-    });
-
-    // 5. Function to save a marker with the associated date and notes:
-    document.getElementById('savePin').addEventListener('click', function() {
-      if (!tempMarker) {
-        alert("Please click on the map to select a location!");
-        return;
-      }
-      var date = document.getElementById('date').value;
-      var notes = document.getElementById('notes').value;
-      if (!date) {
-        alert("Please select a date");
-        return;
-      }
-      
-      // Bind a popup to the marker with the saved info:
-      tempMarker.bindPopup("<b>Date:</b> " + date + "<br><b>Notes:</b> " + notes).openPopup();
-
-      // Save marker data into local storage (for persistence on reload):
-      var savedPins = JSON.parse(localStorage.getItem('pins')) || [];
-      var pinData = {
-        lat: tempMarker.getLatLng().lat,
-        lng: tempMarker.getLatLng().lng,
-        date: date,
-        notes: notes
-      };
-      savedPins.push(pinData);
-      localStorage.setItem('pins', JSON.stringify(savedPins));
-
-      // Clear the temporary marker variable so a new one can be placed:
-      tempMarker = null;
-      document.getElementById('date').value = "";
-      document.getElementById('notes').value = "";
-      alert("Pin saved!");
-    });
-
-    // 6. Load and display saved markers when the page loads:
-    window.addEventListener('load', function() {
-      var savedPins = JSON.parse(localStorage.getItem('pins')) || [];
-      savedPins.forEach(function(pin) {
-        var marker = L.marker([pin.lat, pin.lng]).addTo(map);
-        marker.bindPopup("<b>Date:</b> " + pin.date + "<br><b>Notes:</b> " + pin.notes);
+    function initMap() {
+      map = new google.maps.Map(document.getElementById("map"), {
+        center: { lat: 1.3521, lng: 103.8198 },
+        zoom: 12
       });
-    });
 
-// Function to populate the filter dropdown with unique dates
-function populateFilter() {
-  var savedPins = JSON.parse(localStorage.getItem('pins')) || [];
-  var dates = [...new Set(savedPins.map(pin => pin.date))];
-  var filterSelect = document.getElementById('filterDate');
-  filterSelect.innerHTML = '<option value="">--Select Date--</option>';
-  dates.forEach(function(date) {
-    var option = document.createElement('option');
-    option.value = date;
-    option.textContent = date;
-    filterSelect.appendChild(option);
-  });
-}
+      const input = document.getElementById("place-search");
+      const searchBox = new google.maps.places.SearchBox(input);
+      map.controls[google.maps.ControlPosition.TOP_LEFT].push(input);
 
-// Call populateFilter on page load
-window.addEventListener('load', populateFilter);
+      searchBox.addListener("places_changed", () => {
+        const places = searchBox.getPlaces();
+        if (places.length === 0) return;
 
-// Event listener for applying filter
-document.getElementById('applyFilter').addEventListener('click', function() {
-  var selectedDate = document.getElementById('filterDate').value;
-  var savedPins = JSON.parse(localStorage.getItem('pins')) || [];
-  
-  // Remove any existing polylines (if you’re storing them globally)
-  if(window.currentPolyline) {
-    map.removeLayer(window.currentPolyline);
-  }
-  
-  if (!selectedDate) {
-    alert("Please select a date to filter");
-    return;
-  }
-  
-  // Filter pins by selected date
-  var filteredPins = savedPins.filter(pin => pin.date === selectedDate);
-  
-  // Create an array of coordinates for polyline
-  var latlngs = filteredPins.map(pin => [pin.lat, pin.lng]);
-  
-  // Optionally, clear current markers and re-add filtered ones
-  // For now, we’ll just draw a line connecting them
-  if (latlngs.length > 1) {
-    window.currentPolyline = L.polyline(latlngs, {color: 'blue'}).addTo(map);
-    map.fitBounds(window.currentPolyline.getBounds());
-  } else if (latlngs.length === 1) {
-    map.setView(latlngs[0], 14);  // Zoom in on single marker
-  }
-});
+        selectedPlace = places[0];
+        const location = selectedPlace.geometry.location;
 
-    
+        if (marker) marker.setMap(null);
+        marker = new google.maps.Marker({
+          map,
+          title: selectedPlace.name,
+          position: location
+        });
+
+        map.panTo(location);
+      });
+
+      refreshSavedList();
+    }
+
+    function saveLocation() {
+      if (!selectedPlace) {
+        alert("Please search for a place first.");
+        return;
+      }
+
+      const date = document.getElementById("visit-date").value;
+      if (!date) {
+        alert("Please choose a date.");
+        return;
+      }
+
+      const notes = document.getElementById("notes").value;
+
+      const locationData = {
+        id: Date.now(),
+        name: selectedPlace.name,
+        lat: selectedPlace.geometry.location.lat(),
+        lng: selectedPlace.geometry.location.lng(),
+        date,
+        notes
+      };
+
+      savedLocations.push(locationData);
+      localStorage.setItem("savedLocations", JSON.stringify(savedLocations));
+      alert(`Saved "${locationData.name}" for ${date}`);
+      refreshSavedList();
+      updateDaySelector();
+    }
+
+    function refreshSavedList() {
+      const listDiv = document.getElementById("saved-list");
+      listDiv.innerHTML = "<h3>Saved Locations:</h3>";
+
+      savedLocations.forEach(loc => {
+        const el = document.createElement("div");
+        el.innerHTML = `<strong>${loc.name}</strong> — ${loc.date}<br><em>${loc.notes}</em>`;
+        listDiv.appendChild(el);
+      });
+    }
+
+    function updateDaySelector() {
+      const daySelector = document.getElementById("day-selector");
+      const dates = [...new Set(savedLocations.map(l => l.date))];
+
+      daySelector.innerHTML = `<option value="">-- Select a Day to Show Route --</option>`;
+      dates.forEach(date => {
+        const opt = document.createElement("option");
+        opt.value = date;
+        opt.textContent = date;
+        daySelector.appendChild(opt);
+      });
+    }
+
+    function drawRoutesForDay() {
+      const selectedDate = document.getElementById("day-selector").value;
+      const dayLocations = savedLocations.filter(l => l.date === selectedDate);
+
+      if (dayLocations.length < 2) {
+        alert("You need at least 2 locations on this day to draw a route.");
+        return;
+      }
+
+      const directionsService = new google.maps.DirectionsService();
+      const directionsRenderer = new google.maps.DirectionsRenderer();
+      directionsRenderer.setMap(map);
+
+      const origin = dayLocations[0];
+      const destination = dayLocations[dayLocations.length - 1];
+      const waypoints = dayLocations.slice(1, -1).map(loc => ({
+        location: new google.maps.LatLng(loc.lat, loc.lng),
+        stopover: true
+      }));
+
+      directionsService.route({
+        origin: new google.maps.LatLng(origin.lat, origin.lng),
+        destination: new google.maps.LatLng(destination.lat, destination.lng),
+        waypoints: waypoints,
+        travelMode: google.maps.TravelMode.DRIVING
+      }, (result, status) => {
+        if (status === "OK") {
+          directionsRenderer.setDirections(result);
+        } else {
+          alert("Could not draw route: " + status);
+        }
+      });
+    }
+
+    window.onload = () => {
+      updateDaySelector();
+    };
   </script>
+
+  <!-- Replace YOUR_API_KEY with your actual key -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBVMx_F4MGIaNXMcRvyuavcm_S5BUgZDw4&libraries=places&callback=initMap" async defer></script>
 </body>
 </html>
