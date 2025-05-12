@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Trip Planner Map</title>
+  <!-- Include Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+  <style>
+    /* Set the height of the map container */
+    #map {
+      height: 600px;
+      width: 100%;
+    }
+    /* Basic styling for the form below the map */
+    #formContainer {
+      margin-top: 10px;
+    }
+    label {
+      display: inline-block;
+      width: 60px;
+    }
+    input {
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Trip Planner Map</h1>
+  
+  <!-- Map container -->
+  <div id="map"></div>
+  
+  <!-- Form for capturing date and notes -->
+  <div id="formContainer">
+    <label for="date">Date:</label>
+    <input type="date" id="date">
+    <br>
+    <label for="notes">Notes:</label>
+    <input type="text" id="notes" placeholder="Enter notes here">
+    <br>
+    <button id="savePin">Save Pin</button>
+  </div>
+
+  <!-- Include Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  
+  <!-- Your JavaScript logic -->
+  <script>
+    // 1. Initialize the map and set a default view:
+    var map = L.map('map').setView([20, 0], 2); // Adjust center and zoom level as needed.
+
+    // 2. Load OpenStreetMap tiles via Leaflet:
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // 3. Prepare a temporary marker variable:
+    var tempMarker;
+
+    // 4. Listen for clicks on the map to place a temporary marker:
+    map.on('click', function(e) {
+      // Remove previous temporary marker if it exists
+      if (tempMarker) {
+        map.removeLayer(tempMarker);
+      }
+      // Add a new marker at the clicked location
+      tempMarker = L.marker(e.latlng).addTo(map);
+    });
+
+    // 5. Function to save a marker with the associated date and notes:
+    document.getElementById('savePin').addEventListener('click', function() {
+      if (!tempMarker) {
+        alert("Please click on the map to select a location!");
+        return;
+      }
+      var date = document.getElementById('date').value;
+      var notes = document.getElementById('notes').value;
+      if (!date) {
+        alert("Please select a date");
+        return;
+      }
+      
+      // Bind a popup to the marker with the saved info:
+      tempMarker.bindPopup("<b>Date:</b> " + date + "<br><b>Notes:</b> " + notes).openPopup();
+
+      // Save marker data into local storage (for persistence on reload):
+      var savedPins = JSON.parse(localStorage.getItem('pins')) || [];
+      var pinData = {
+        lat: tempMarker.getLatLng().lat,
+        lng: tempMarker.getLatLng().lng,
+        date: date,
+        notes: notes
+      };
+      savedPins.push(pinData);
+      localStorage.setItem('pins', JSON.stringify(savedPins));
+
+      // Clear the temporary marker variable so a new one can be placed:
+      tempMarker = null;
+      document.getElementById('date').value = "";
+      document.getElementById('notes').value = "";
+      alert("Pin saved!");
+    });
+
+    // 6. Load and display saved markers when the page loads:
+    window.addEventListener('load', function() {
+      var savedPins = JSON.parse(localStorage.getItem('pins')) || [];
+      savedPins.forEach(function(pin) {
+        var marker = L.marker([pin.lat, pin.lng]).addTo(map);
+        marker.bindPopup("<b>Date:</b> " + pin.date + "<br><b>Notes:</b> " + pin.notes);
+      });
+    });
+  </script>
+</body>
+</html>
