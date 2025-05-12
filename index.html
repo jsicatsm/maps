@@ -41,6 +41,16 @@
     <button id="savePin">Save Pin</button>
   </div>
 
+ <!--  Add a Select Element in HTML: -->
+<div id="filterContainer">
+  <label for="filterDate">Filter by Date:</label>
+  <select id="filterDate">
+    <option value="">--Select Date--</option>
+    <!-- Options will be dynamically populated -->
+  </select>
+  <button id="applyFilter">Apply Filter</button>
+</div>
+  
   <!-- Include Leaflet JS -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   
@@ -109,6 +119,56 @@
         marker.bindPopup("<b>Date:</b> " + pin.date + "<br><b>Notes:</b> " + pin.notes);
       });
     });
+
+// Function to populate the filter dropdown with unique dates
+function populateFilter() {
+  var savedPins = JSON.parse(localStorage.getItem('pins')) || [];
+  var dates = [...new Set(savedPins.map(pin => pin.date))];
+  var filterSelect = document.getElementById('filterDate');
+  filterSelect.innerHTML = '<option value="">--Select Date--</option>';
+  dates.forEach(function(date) {
+    var option = document.createElement('option');
+    option.value = date;
+    option.textContent = date;
+    filterSelect.appendChild(option);
+  });
+}
+
+// Call populateFilter on page load
+window.addEventListener('load', populateFilter);
+
+// Event listener for applying filter
+document.getElementById('applyFilter').addEventListener('click', function() {
+  var selectedDate = document.getElementById('filterDate').value;
+  var savedPins = JSON.parse(localStorage.getItem('pins')) || [];
+  
+  // Remove any existing polylines (if you’re storing them globally)
+  if(window.currentPolyline) {
+    map.removeLayer(window.currentPolyline);
+  }
+  
+  if (!selectedDate) {
+    alert("Please select a date to filter");
+    return;
+  }
+  
+  // Filter pins by selected date
+  var filteredPins = savedPins.filter(pin => pin.date === selectedDate);
+  
+  // Create an array of coordinates for polyline
+  var latlngs = filteredPins.map(pin => [pin.lat, pin.lng]);
+  
+  // Optionally, clear current markers and re-add filtered ones
+  // For now, we’ll just draw a line connecting them
+  if (latlngs.length > 1) {
+    window.currentPolyline = L.polyline(latlngs, {color: 'blue'}).addTo(map);
+    map.fitBounds(window.currentPolyline.getBounds());
+  } else if (latlngs.length === 1) {
+    map.setView(latlngs[0], 14);  // Zoom in on single marker
+  }
+});
+
+    
   </script>
 </body>
 </html>
