@@ -1,164 +1,146 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Travel Planner</title>
+  <meta charset="UTF-8">
+  <title>Travel Planner with OpenStreetMap</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
-    body { font-family: sans-serif; }
-    #map { height: 75vh; width: 100%; }
-    #controls {
-      padding: 10px;
-      background: #f9f9f9;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-    }
-    textarea { vertical-align: middle; }
-    #saved-list { margin: 10px; }
+    body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; }
+    #map { height: 90vh; }
+    #controls { padding: 10px; background: #f4f4f4; }
+    .popup-form input, .popup-form textarea, .popup-form button { display: block; width: 100%; margin-top: 5px; }
   </style>
 </head>
 <body>
-  <div id="controls">
-    <input id="place-search" type="text" placeholder="Search a place" size="40">
-    <input type="date" id="visit-date">
-    <textarea id="notes" placeholder="Add notes..." rows="2" cols="30"></textarea>
-    <button onclick="saveLocation()">Add To-Go</button>
-    <select id="day-selector" onchange="drawRoutesForDay()">
-      <option value="">-- Select a Day to Show Route --</option>
-    </select>
-  </div>
 
-  <div id="map"></div>
-  <div id="saved-list"></div>
+<div id="controls">
+  🔍 <input type="text" id="searchBox" placeholder="Search place..." />
+  <button onclick="searchPlace()">Search</button>
+  <button onclick="clearAll()">Clear All</button>
+</div>
+<div id="map"></div>
 
-  <script>
-    let map, marker, selectedPlace;
-    let savedLocations = JSON.parse(localStorage.getItem("savedLocations") || "[]");
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+  const ORS_API_KEY = "5b3ce3597851110001cf62489b2edba376c34275a27c88bde7643bc6"; // <-- Replace this
 
-    function initMap() {
-      map = new google.maps.Map(document.getElementById("map"), {
-        center: { lat: 1.3521, lng: 103.8198 },
-        zoom: 12
-      });
+  let map = L.map('map').setView([1.3521, 103.8198], 12); // Singapore default
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(map);
 
-      const input = document.getElementById("place-search");
-      const searchBox = new google.maps.places.SearchBox(input);
-      map.controls[google.maps.ControlPosition.TOP_LEFT].push(input);
+  let markers = [];
+  let visitData = JSON.parse(localStorage.getItem('visitData')) || [];
 
-      searchBox.addListener("places_changed", () => {
-        const places = searchBox.getPlaces();
-        if (places.length === 0) return;
+  function addMarker(lat, lon, name, date = '', note = '') {
+    const marker = L.marker([lat, lon], { draggable: false }).addTo(map);
+    marker.bindTooltip(note || name, { permanent: false, direction: "top" });
+    marker.visitInfo = { lat, lon, name, date, note };
 
-        selectedPlace = places[0];
-        const location = selectedPlace.geometry.location;
+    marker.on('click', () => {
+      const content = document.createElement('div');
+      content.className = 'popup-form';
+      content.innerHTML = `
+        <strong>${name}</strong><br/>
+        📅 <input type="date" value="${date}" id="dateInput" />
+        📝 <textarea id="noteInput" placeholder="Enter note...">${note}</textarea>
+        <button onclick="saveInfo(${lat}, ${lon})">Save</button>
+        <button onclick="deleteMarker(${lat}, ${lon})">Delete</button>
+      `;
+      marker.bindPopup(content).openPopup();
+    });
 
-        if (marker) marker.setMap(null);
-        marker = new google.maps.Marker({
-          map,
-          title: selectedPlace.name,
-          position: location
-        });
+    markers.push(marker);
+    visitData.push({ lat, lon, name, date, note });
+    saveToStorage();
+    updateRoutes();
+  }
 
-        map.panTo(location);
-      });
+  function saveToStorage() {
+    localStorage.setItem('visitData', JSON.stringify(visitData));
+  }
 
-      refreshSavedList();
-    }
+  function restoreMarkers() {
+    visitData.forEach(({ lat, lon, name, date, note }) => {
+      addMarker(lat, lon, name, date, note);
+    });
+  }
 
-    function saveLocation() {
-      if (!selectedPlace) {
-        alert("Please search for a place first.");
-        return;
-      }
+  function saveInfo(lat, lon) {
+    const date = document.getElementById('dateInput').value;
+    const note = document.getElementById('noteInput').value;
+    visitData = visitData.map(v => v.lat === lat && v.lon === lon ? { ...v, date, note } : v);
+    saveToStorage();
+    location.reload();
+  }
 
-      const date = document.getElementById("visit-date").value;
-      if (!date) {
-        alert("Please choose a date.");
-        return;
-      }
+  function deleteMarker(lat, lon) {
+    visitData = visitData.filter(v => v.lat !== lat || v.lon !== lon);
+    saveToStorage();
+    location.reload();
+  }
 
-      const notes = document.getElementById("notes").value;
+  function clearAll() {
+    localStorage.removeItem('visitData');
+    location.reload();
+  }
 
-      const locationData = {
-        id: Date.now(),
-        name: selectedPlace.name,
-        lat: selectedPlace.geometry.location.lat(),
-        lng: selectedPlace.geometry.location.lng(),
-        date,
-        notes
+  async function searchPlace() {
+    const query = document.getElementById('searchBox').value;
+    if (!query) return alert("Enter a place");
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    if (!data.length) return alert("Place not found!");
+    const { lat, lon, display_name } = data[0];
+    map.setView([lat, lon], 15);
+    addMarker(lat, lon, display_name);
+  }
+
+  async function updateRoutes() {
+    // Remove old routes
+    document.querySelectorAll('.route-line').forEach(el => el.remove());
+
+    const groupedByDate = {};
+    visitData.forEach(item => {
+      if (!item.date) return;
+      if (!groupedByDate[item.date]) groupedByDate[item.date] = [];
+      groupedByDate[item.date].push(item);
+    });
+
+    for (const date in groupedByDate) {
+      const coords = groupedByDate[date].map(p => [parseFloat(p.lon), parseFloat(p.lat)]);
+      if (coords.length < 2) continue;
+
+      const body = {
+        coordinates: coords,
+        instructions: false,
       };
 
-      savedLocations.push(locationData);
-      localStorage.setItem("savedLocations", JSON.stringify(savedLocations));
-      alert(`Saved "${locationData.name}" for ${date}`);
-      refreshSavedList();
-      updateDaySelector();
-    }
+      try {
+        const res = await fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson", {
+          method: "POST",
+          headers: {
+            "Authorization": ORS_API_KEY,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(body)
+        });
 
-    function refreshSavedList() {
-      const listDiv = document.getElementById("saved-list");
-      listDiv.innerHTML = "<h3>Saved Locations:</h3>";
+        const geojson = await res.json();
+        const routeLayer = L.geoJSON(geojson, {
+          style: { color: "blue", weight: 3 },
+          className: 'route-line'
+        }).addTo(map);
 
-      savedLocations.forEach(loc => {
-        const el = document.createElement("div");
-        el.innerHTML = `<strong>${loc.name}</strong> — ${loc.date}<br><em>${loc.notes}</em>`;
-        listDiv.appendChild(el);
-      });
-    }
-
-    function updateDaySelector() {
-      const daySelector = document.getElementById("day-selector");
-      const dates = [...new Set(savedLocations.map(l => l.date))];
-
-      daySelector.innerHTML = `<option value="">-- Select a Day to Show Route --</option>`;
-      dates.forEach(date => {
-        const opt = document.createElement("option");
-        opt.value = date;
-        opt.textContent = date;
-        daySelector.appendChild(opt);
-      });
-    }
-
-    function drawRoutesForDay() {
-      const selectedDate = document.getElementById("day-selector").value;
-      const dayLocations = savedLocations.filter(l => l.date === selectedDate);
-
-      if (dayLocations.length < 2) {
-        alert("You need at least 2 locations on this day to draw a route.");
-        return;
+      } catch (err) {
+        console.error("Routing error:", err);
       }
-
-      const directionsService = new google.maps.DirectionsService();
-      const directionsRenderer = new google.maps.DirectionsRenderer();
-      directionsRenderer.setMap(map);
-
-      const origin = dayLocations[0];
-      const destination = dayLocations[dayLocations.length - 1];
-      const waypoints = dayLocations.slice(1, -1).map(loc => ({
-        location: new google.maps.LatLng(loc.lat, loc.lng),
-        stopover: true
-      }));
-
-      directionsService.route({
-        origin: new google.maps.LatLng(origin.lat, origin.lng),
-        destination: new google.maps.LatLng(destination.lat, destination.lng),
-        waypoints: waypoints,
-        travelMode: google.maps.TravelMode.DRIVING
-      }, (result, status) => {
-        if (status === "OK") {
-          directionsRenderer.setDirections(result);
-        } else {
-          alert("Could not draw route: " + status);
-        }
-      });
     }
+  }
 
-    window.onload = () => {
-      updateDaySelector();
-    };
-  </script>
-
-  <!-- Replace YOUR_API_KEY with your actual key -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBVMx_F4MGIaNXMcRvyuavcm_S5BUgZDw4&libraries=places&callback=initMap" async defer></script>
+  restoreMarkers();
+</script>
 </body>
 </html>
+
